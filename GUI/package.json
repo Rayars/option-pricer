@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "api": "python ../european_option_api.py"
+    "api": "../.venv/bin/python ../http_server.py"
   },
   "dependencies": {
     "react": "^18.3.1",

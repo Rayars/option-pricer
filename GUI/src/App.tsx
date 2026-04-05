@@ -5,7 +5,20 @@ type OptionResult = {
   putPrice: number;
 };
 
+type ImpliedVolatilityResult = {
+  impliedVolatility: number;
+};
+
 type FormState = {
+  spot: string;
+  strike: string;
+  rate: string;
+  dividendYield: string;
+  volatility: string;
+  maturity: string;
+};
+
+type PricingPayload = {
   spot: number;
   strike: number;
   rate: number;
@@ -14,18 +27,48 @@ type FormState = {
   maturity: number;
 };
 
+type ImpliedVolatilityFormState = {
+  spot: string;
+  strike: string;
+  rate: string;
+  dividendYield: string;
+  maturity: string;
+  marketPrice: string;
+  optionType: "call" | "put";
+};
+
+type ImpliedVolatilityPayload = {
+  spot: number;
+  strike: number;
+  rate: number;
+  dividendYield: number;
+  maturity: number;
+  marketPrice: number;
+  optionType: "call" | "put";
+};
+
 type OptionTab = "european" | "basket" | "asian" | "american";
 
 const initialForm: FormState = {
-  spot: 100,
-  strike: 100,
-  rate: 0.05,
-  dividendYield: 0.02,
-  volatility: 0.2,
-  maturity: 1
+  spot: "100",
+  strike: "100",
+  rate: "0.05",
+  dividendYield: "0.02",
+  volatility: "0.2",
+  maturity: "1"
 };
 
-async function fetchEuropeanOption(data: FormState): Promise<OptionResult> {
+const initialIvForm: ImpliedVolatilityFormState = {
+  spot: "100",
+  strike: "100",
+  rate: "0.05",
+  dividendYield: "0.02",
+  maturity: "1",
+  marketPrice: "10",
+  optionType: "call"
+};
+
+async function fetchEuropeanOption(data: PricingPayload): Promise<OptionResult> {
   const response = await fetch("/api/european-option", {
     method: "POST",
     headers: {
@@ -43,6 +86,24 @@ async function fetchEuropeanOption(data: FormState): Promise<OptionResult> {
   return payload;
 }
 
+async function fetchImpliedVolatility(data: ImpliedVolatilityPayload): Promise<ImpliedVolatilityResult> {
+  const response = await fetch("/api/implied-volatility", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Python implied volatility service error");
+  }
+
+  const payload = (await response.json()) as ImpliedVolatilityResult;
+  return payload;
+}
+
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(4) : "-";
 }
@@ -51,6 +112,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<OptionTab>("european");
   const [form, setForm] = useState<FormState>(initialForm);
   const [result, setResult] = useState<OptionResult | null>(null);
+  const [ivForm, setIvForm] = useState<ImpliedVolatilityFormState>(initialIvForm);
+  const [ivResult, setIvResult] = useState<ImpliedVolatilityResult | null>(null);
+  const [ivError, setIvError] = useState<string>("");
+  const [isIvLoading, setIsIvLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
@@ -64,22 +129,70 @@ export default function App() {
   );
 
   useEffect(() => {
-    void runPricing(initialForm);
+    void runPricing(parsePricingPayload(initialForm));
   }, []);
 
-  function updateField<K extends keyof FormState>(key: K, value: number) {
+  function updateField<K extends keyof FormState>(key: K, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  function updateIvField<K extends keyof ImpliedVolatilityFormState>(
+    key: K,
+    value: ImpliedVolatilityFormState[K]
+  ) {
+    setIvForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function toNumber(value: string): number {
+    return Number(value.trim());
+  }
+
+  function parsePricingPayload(data: FormState): PricingPayload {
+    return {
+      spot: toNumber(data.spot),
+      strike: toNumber(data.strike),
+      rate: toNumber(data.rate),
+      dividendYield: toNumber(data.dividendYield),
+      volatility: toNumber(data.volatility),
+      maturity: toNumber(data.maturity)
+    };
+  }
+
+  function parseImpliedVolatilityPayload(data: ImpliedVolatilityFormState): ImpliedVolatilityPayload {
+    return {
+      spot: toNumber(data.spot),
+      strike: toNumber(data.strike),
+      rate: toNumber(data.rate),
+      dividendYield: toNumber(data.dividendYield),
+      maturity: toNumber(data.maturity),
+      marketPrice: toNumber(data.marketPrice),
+      optionType: data.optionType
+    };
+  }
+
   function validate(data: FormState): string {
-    if (data.spot <= 0) return "Spot price 必须大于 0";
-    if (data.strike <= 0) return "Strike price 必须大于 0";
-    if (data.volatility <= 0) return "Volatility 必须大于 0";
-    if (data.maturity <= 0) return "Time to maturity 必须大于 0";
+    const parsed = parsePricingPayload(data);
+    if (!Number.isFinite(parsed.spot) || parsed.spot <= 0) return "Spot price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.strike) || parsed.strike <= 0) return "Strike price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.volatility) || parsed.volatility <= 0) return "Volatility 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.maturity) || parsed.maturity <= 0) return "Time to maturity 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.rate)) return "Risk-free Rate 必须是数字";
+    if (!Number.isFinite(parsed.dividendYield)) return "Dividend Yield 必须是数字";
     return "";
   }
 
-  async function runPricing(data: FormState) {
+  function validateImpliedVolatility(data: ImpliedVolatilityFormState): string {
+    const parsed = parseImpliedVolatilityPayload(data);
+    if (!Number.isFinite(parsed.spot) || parsed.spot <= 0) return "IV: Spot price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.strike) || parsed.strike <= 0) return "IV: Strike price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.maturity) || parsed.maturity <= 0) return "IV: Time to maturity 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.marketPrice) || parsed.marketPrice <= 0) return "IV: Market option price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.rate)) return "IV: Risk-free Rate 必须是数字";
+    if (!Number.isFinite(parsed.dividendYield)) return "IV: Dividend Yield 必须是数字";
+    return "";
+  }
+
+  async function runPricing(data: PricingPayload) {
     try {
       setIsLoading(true);
       const priced = await fetchEuropeanOption(data);
@@ -93,6 +206,20 @@ export default function App() {
     }
   }
 
+  async function runImpliedVolatility(data: ImpliedVolatilityPayload) {
+    try {
+      setIsIvLoading(true);
+      const iv = await fetchImpliedVolatility(data);
+      setIvResult(iv);
+      setIvError("");
+    } catch (err) {
+      setIvResult(null);
+      setIvError(err instanceof Error ? err.message : "IV 计算失败，请检查 Python 服务是否启动");
+    } finally {
+      setIsIvLoading(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const validationError = validate(form);
@@ -103,13 +230,32 @@ export default function App() {
       return;
     }
 
-    await runPricing(form);
+    await runPricing(parsePricingPayload(form));
   }
 
   async function handleReset() {
     setForm(initialForm);
     setError("");
-    await runPricing(initialForm);
+    await runPricing(parsePricingPayload(initialForm));
+  }
+
+  async function handleIvSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const validationError = validateImpliedVolatility(ivForm);
+    setIvError(validationError);
+
+    if (validationError) {
+      setIvResult(null);
+      return;
+    }
+
+    await runImpliedVolatility(parseImpliedVolatilityPayload(ivForm));
+  }
+
+  function handleIvReset() {
+    setIvForm(initialIvForm);
+    setIvResult(null);
+    setIvError("");
   }
 
   const tabItems: Array<{ key: OptionTab; label: string }> = [
@@ -153,60 +299,60 @@ export default function App() {
               <label>
                 Spot Price (S)
                 <input
-                  type="number"
-                  step="0.01"
+                    type="text"
+                    inputMode="decimal"
                   value={form.spot}
-                  onChange={(e) => updateField("spot", Number(e.target.value))}
+                    onChange={(e) => updateField("spot", e.target.value)}
                 />
               </label>
 
               <label>
                 Strike Price (K)
                 <input
-                  type="number"
-                  step="0.01"
+                    type="text"
+                    inputMode="decimal"
                   value={form.strike}
-                  onChange={(e) => updateField("strike", Number(e.target.value))}
+                    onChange={(e) => updateField("strike", e.target.value)}
                 />
               </label>
 
               <label>
                 Risk-free Rate (r)
                 <input
-                  type="number"
-                  step="0.001"
+                    type="text"
+                    inputMode="decimal"
                   value={form.rate}
-                  onChange={(e) => updateField("rate", Number(e.target.value))}
+                    onChange={(e) => updateField("rate", e.target.value)}
                 />
               </label>
 
               <label>
                 Dividend Yield (q)
                 <input
-                  type="number"
-                  step="0.001"
+                    type="text"
+                    inputMode="decimal"
                   value={form.dividendYield}
-                  onChange={(e) => updateField("dividendYield", Number(e.target.value))}
+                    onChange={(e) => updateField("dividendYield", e.target.value)}
                 />
               </label>
 
               <label>
                 Volatility (sigma)
                 <input
-                  type="number"
-                  step="0.001"
+                    type="text"
+                    inputMode="decimal"
                   value={form.volatility}
-                  onChange={(e) => updateField("volatility", Number(e.target.value))}
+                    onChange={(e) => updateField("volatility", e.target.value)}
                 />
               </label>
 
               <label>
                 Time to Maturity (T, years)
                 <input
-                  type="number"
-                  step="0.01"
+                    type="text"
+                    inputMode="decimal"
                   value={form.maturity}
-                  onChange={(e) => updateField("maturity", Number(e.target.value))}
+                    onChange={(e) => updateField("maturity", e.target.value)}
                 />
               </label>
 
@@ -231,6 +377,101 @@ export default function App() {
                 <p className="metric">Put Price</p>
                 <p className="value">{result ? formatNumber(result.putPrice) : "-"}</p>
               </article>
+            </section>
+
+            <section className="iv-section">
+              <h2>Implied Volatility Calculator</h2>
+
+              <form className="pricing-form" onSubmit={handleIvSubmit}>
+                <label>
+                  Spot Price (S)
+                  <input
+                      type="text"
+                      inputMode="decimal"
+                    value={ivForm.spot}
+                      onChange={(e) => updateIvField("spot", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  Strike Price (K)
+                  <input
+                      type="text"
+                      inputMode="decimal"
+                    value={ivForm.strike}
+                      onChange={(e) => updateIvField("strike", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  Risk-free Rate (r)
+                  <input
+                      type="text"
+                      inputMode="decimal"
+                    value={ivForm.rate}
+                      onChange={(e) => updateIvField("rate", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  Dividend Yield (q)
+                  <input
+                      type="text"
+                      inputMode="decimal"
+                    value={ivForm.dividendYield}
+                      onChange={(e) => updateIvField("dividendYield", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  Time to Maturity (T, years)
+                  <input
+                      type="text"
+                      inputMode="decimal"
+                    value={ivForm.maturity}
+                      onChange={(e) => updateIvField("maturity", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  Market Option Price (V)
+                  <input
+                      type="text"
+                      inputMode="decimal"
+                    value={ivForm.marketPrice}
+                      onChange={(e) => updateIvField("marketPrice", e.target.value)}
+                  />
+                </label>
+
+                <label>
+                  Option Type
+                  <select
+                    value={ivForm.optionType}
+                    onChange={(e) => updateIvField("optionType", e.target.value as "call" | "put")}
+                  >
+                    <option value="call">Call</option>
+                    <option value="put">Put</option>
+                  </select>
+                </label>
+
+                <div className="actions">
+                  <button type="submit" disabled={isIvLoading}>
+                    {isIvLoading ? "Calculating IV..." : "Calculate IV"}
+                  </button>
+                  <button type="button" className="secondary" onClick={handleIvReset} disabled={isIvLoading}>
+                    Reset
+                  </button>
+                </div>
+              </form>
+
+              {ivError ? <p className="error">{ivError}</p> : null}
+
+              <section className="result-grid iv-result" aria-live="polite">
+                <article>
+                  <p className="metric">Implied Volatility (sigma)</p>
+                  <p className="value">{ivResult ? formatNumber(ivResult.impliedVolatility) : "-"}</p>
+                </article>
+              </section>
             </section>
           </>
         ) : (

@@ -129,7 +129,25 @@ input {
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
+select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  padding: 0.65rem 0.7rem;
+  font-size: 0.97rem;
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--ink);
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
 input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(205, 74, 29, 0.16);
+}
+
+select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(205, 74, 29, 0.16);
@@ -218,6 +236,21 @@ button.secondary:hover {
   font-family: "IBM Plex Mono", monospace;
   font-size: 1.2rem;
   color: var(--ok);
+}
+
+.iv-section {
+  margin-top: 1.3rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--line);
+}
+
+.iv-section h2 {
+  margin: 0 0 0.9rem;
+  font-size: 1.08rem;
+}
+
+.iv-result {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .assumption-card {
