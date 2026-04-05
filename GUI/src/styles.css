@@ -253,6 +253,17 @@ button.secondary:hover {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.asian-result-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ci-text {
+  margin-top: 0.45rem;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  font-family: "IBM Plex Mono", monospace;
+}
+
 .assumption-card {
   padding: 1.2rem;
   animation-delay: 0.18s;
@@ -289,6 +300,10 @@ button.secondary:hover {
 
   .result-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .asian-result-grid {
+    grid-template-columns: 1fr;
   }
 }
 

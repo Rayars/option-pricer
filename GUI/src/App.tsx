@@ -9,6 +9,14 @@ type ImpliedVolatilityResult = {
   impliedVolatility: number;
 };
 
+type AsianOptionResult = {
+  geometricValue: number;
+  standardMcValue: number;
+  controlVariateMcValue: number;
+  standardMcConfidenceInterval: [number, number];
+  controlVariateConfidenceInterval: [number, number];
+};
+
 type FormState = {
   spot: string;
   strike: string;
@@ -47,6 +55,28 @@ type ImpliedVolatilityPayload = {
   optionType: "call" | "put";
 };
 
+type AsianFormState = {
+  spot: string;
+  strike: string;
+  rate: string;
+  volatility: string;
+  maturity: string;
+  nSteps: string;
+  nPaths: string;
+  optionType: "call" | "put";
+};
+
+type AsianPricingPayload = {
+  spot: number;
+  strike: number;
+  rate: number;
+  volatility: number;
+  maturity: number;
+  nSteps: number;
+  nPaths: number;
+  optionType: "call" | "put";
+};
+
 type OptionTab = "european" | "basket" | "asian" | "american";
 
 const initialForm: FormState = {
@@ -65,6 +95,17 @@ const initialIvForm: ImpliedVolatilityFormState = {
   dividendYield: "0.02",
   maturity: "1",
   marketPrice: "10",
+  optionType: "call"
+};
+
+const initialAsianForm: AsianFormState = {
+  spot: "100",
+  strike: "100",
+  rate: "0.05",
+  volatility: "0.2",
+  maturity: "1",
+  nSteps: "50",
+  nPaths: "10000",
   optionType: "call"
 };
 
@@ -104,6 +145,24 @@ async function fetchImpliedVolatility(data: ImpliedVolatilityPayload): Promise<I
   return payload;
 }
 
+async function fetchAsianOption(data: AsianPricingPayload): Promise<AsianOptionResult> {
+  const response = await fetch("/api/asian-option", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Python asian option service error");
+  }
+
+  const payload = (await response.json()) as AsianOptionResult;
+  return payload;
+}
+
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(4) : "-";
 }
@@ -116,6 +175,10 @@ export default function App() {
   const [ivResult, setIvResult] = useState<ImpliedVolatilityResult | null>(null);
   const [ivError, setIvError] = useState<string>("");
   const [isIvLoading, setIsIvLoading] = useState<boolean>(false);
+  const [asianForm, setAsianForm] = useState<AsianFormState>(initialAsianForm);
+  const [asianResult, setAsianResult] = useState<AsianOptionResult | null>(null);
+  const [asianError, setAsianError] = useState<string>("");
+  const [isAsianLoading, setIsAsianLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
@@ -141,6 +204,13 @@ export default function App() {
     value: ImpliedVolatilityFormState[K]
   ) {
     setIvForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateAsianField<K extends keyof AsianFormState>(
+    key: K,
+    value: AsianFormState[K]
+  ) {
+    setAsianForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function toNumber(value: string): number {
@@ -170,6 +240,19 @@ export default function App() {
     };
   }
 
+  function parseAsianPayload(data: AsianFormState): AsianPricingPayload {
+    return {
+      spot: toNumber(data.spot),
+      strike: toNumber(data.strike),
+      rate: toNumber(data.rate),
+      volatility: toNumber(data.volatility),
+      maturity: toNumber(data.maturity),
+      nSteps: Number.parseInt(data.nSteps.trim(), 10),
+      nPaths: Number.parseInt(data.nPaths.trim(), 10),
+      optionType: data.optionType
+    };
+  }
+
   function validate(data: FormState): string {
     const parsed = parsePricingPayload(data);
     if (!Number.isFinite(parsed.spot) || parsed.spot <= 0) return "Spot price 必须是大于 0 的数字";
@@ -189,6 +272,18 @@ export default function App() {
     if (!Number.isFinite(parsed.marketPrice) || parsed.marketPrice <= 0) return "IV: Market option price 必须是大于 0 的数字";
     if (!Number.isFinite(parsed.rate)) return "IV: Risk-free Rate 必须是数字";
     if (!Number.isFinite(parsed.dividendYield)) return "IV: Dividend Yield 必须是数字";
+    return "";
+  }
+
+  function validateAsian(data: AsianFormState): string {
+    const parsed = parseAsianPayload(data);
+    if (!Number.isFinite(parsed.spot) || parsed.spot <= 0) return "Asian: Spot price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.strike) || parsed.strike <= 0) return "Asian: Strike price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.volatility) || parsed.volatility <= 0) return "Asian: Volatility 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.maturity) || parsed.maturity <= 0) return "Asian: Time to maturity 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.rate)) return "Asian: Risk-free Rate 必须是数字";
+    if (!Number.isInteger(parsed.nSteps) || parsed.nSteps <= 0) return "Asian: Number of steps 必须是正整数";
+    if (!Number.isInteger(parsed.nPaths) || parsed.nPaths <= 0) return "Asian: Number of paths 必须是正整数";
     return "";
   }
 
@@ -217,6 +312,20 @@ export default function App() {
       setIvError(err instanceof Error ? err.message : "IV 计算失败，请检查 Python 服务是否启动");
     } finally {
       setIsIvLoading(false);
+    }
+  }
+
+  async function runAsianPricing(data: AsianPricingPayload) {
+    try {
+      setIsAsianLoading(true);
+      const priced = await fetchAsianOption(data);
+      setAsianResult(priced);
+      setAsianError("");
+    } catch (err) {
+      setAsianResult(null);
+      setAsianError(err instanceof Error ? err.message : "Asian Option 计算失败，请检查 Python 服务是否启动");
+    } finally {
+      setIsAsianLoading(false);
     }
   }
 
@@ -256,6 +365,25 @@ export default function App() {
     setIvForm(initialIvForm);
     setIvResult(null);
     setIvError("");
+  }
+
+  async function handleAsianSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const validationError = validateAsian(asianForm);
+    setAsianError(validationError);
+
+    if (validationError) {
+      setAsianResult(null);
+      return;
+    }
+
+    await runAsianPricing(parseAsianPayload(asianForm));
+  }
+
+  function handleAsianReset() {
+    setAsianForm(initialAsianForm);
+    setAsianResult(null);
+    setAsianError("");
   }
 
   const tabItems: Array<{ key: OptionTab; label: string }> = [
@@ -472,6 +600,123 @@ export default function App() {
                   <p className="value">{ivResult ? formatNumber(ivResult.impliedVolatility) : "-"}</p>
                 </article>
               </section>
+            </section>
+          </>
+        ) : activeTab === "asian" ? (
+          <>
+            <form className="pricing-form" onSubmit={handleAsianSubmit}>
+              <label>
+                Spot Price (S)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={asianForm.spot}
+                  onChange={(e) => updateAsianField("spot", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Strike Price (K)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={asianForm.strike}
+                  onChange={(e) => updateAsianField("strike", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Risk-free Rate (r)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={asianForm.rate}
+                  onChange={(e) => updateAsianField("rate", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Volatility (sigma)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={asianForm.volatility}
+                  onChange={(e) => updateAsianField("volatility", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Time to Maturity (T, years)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={asianForm.maturity}
+                  onChange={(e) => updateAsianField("maturity", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Number of Steps (n)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={asianForm.nSteps}
+                  onChange={(e) => updateAsianField("nSteps", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Number of Paths (M)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={asianForm.nPaths}
+                  onChange={(e) => updateAsianField("nPaths", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Option Type
+                <select
+                  value={asianForm.optionType}
+                  onChange={(e) => updateAsianField("optionType", e.target.value as "call" | "put")}
+                >
+                  <option value="call">Call</option>
+                  <option value="put">Put</option>
+                </select>
+              </label>
+
+              <div className="actions">
+                <button type="submit" disabled={isAsianLoading}>
+                  {isAsianLoading ? "Calculating..." : "Calculate"}
+                </button>
+                <button type="button" className="secondary" onClick={handleAsianReset} disabled={isAsianLoading}>
+                  Reset
+                </button>
+              </div>
+            </form>
+
+            {asianError ? <p className="error">{asianError}</p> : null}
+
+            <section className="result-grid asian-result-grid" aria-live="polite">
+              <article>
+                <p className="metric">Geometric Option Value (Closed Form)</p>
+                <p className="value">{asianResult ? formatNumber(asianResult.geometricValue) : "-"}</p>
+              </article>
+              <article>
+                <p className="metric">Arithmetic Option Value (Standard MC)</p>
+                <p className="value">{asianResult ? formatNumber(asianResult.standardMcValue) : "-"}</p>
+                <p className="ci-text">
+                  95% CI: {asianResult ? `${formatNumber(asianResult.standardMcConfidenceInterval[0])}, ${formatNumber(asianResult.standardMcConfidenceInterval[1])}` : "-"}
+                </p>
+              </article>
+              <article>
+                <p className="metric">Arithmetic Option Value (Control Variate MC)</p>
+                <p className="value">{asianResult ? formatNumber(asianResult.controlVariateMcValue) : "-"}</p>
+                <p className="ci-text">
+                  95% CI: {asianResult ? `${formatNumber(asianResult.controlVariateConfidenceInterval[0])}, ${formatNumber(asianResult.controlVariateConfidenceInterval[1])}` : "-"}
+                </p>
+              </article>
             </section>
           </>
         ) : (
