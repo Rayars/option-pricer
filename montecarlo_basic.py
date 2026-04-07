@@ -4,7 +4,7 @@ from scipy.stats import norm
 np.random.seed(1000)
 
 def generate_paths(M, n):
-    Z = np.random.uniform(low=-1, high=1, size=(M, n))
+    Z = np.random.randn(low=-1, high=1, size=(M, n))
     return Z
 
 if __name__ == "__main__":
