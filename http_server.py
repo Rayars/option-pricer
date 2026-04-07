@@ -7,6 +7,7 @@ from typing import Any
 from implied_volatility import implied_volatility_newton
 from Arithmetic_asian_option import Arith_MC_asian_option
 from Geometric_asian_option import geo_CF_asian_option
+from american_option import american_option
 
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -52,6 +53,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._handle_implied_volatility(payload)
             elif self.path == "/api/asian-option":
                 self._handle_asian_option(payload)
+            elif self.path == "/api/american-option":
+                self._handle_american_option(payload)
             else:
                 self._send_json(404, {"error": "Not Found"})
         except Exception as exc:
@@ -150,6 +153,25 @@ class Handler(BaseHTTPRequestHandler):
                 "controlVariateConfidenceInterval": [float(control_variate_ci[0]), float(control_variate_ci[1])],
             },
         )
+
+    def _handle_american_option(self, payload: dict[str, Any]) -> None:
+        spot = float(payload["spot"])
+        strike = float(payload["strike"])
+        rate = float(payload["rate"])
+        maturity = float(payload["maturity"])
+        volatility = float(payload["volatility"])
+        n_steps = int(payload.get("nSteps", 50))
+        option_type = str(payload.get("optionType", "put")).lower()
+
+        if option_type not in {"call", "put"}:
+            raise ValueError("optionType must be 'call' or 'put'")
+        if spot <= 0 or strike <= 0 or maturity <= 0 or volatility <= 0:
+            raise ValueError("spot/strike/maturity/volatility must be positive")
+        if n_steps <= 0:
+            raise ValueError("nSteps must be a positive integer")
+
+        price = float(american_option(spot, strike, rate, maturity, n_steps, volatility, option_type))
+        self._send_json(200, {"price": price})
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:

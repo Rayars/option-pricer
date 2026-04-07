@@ -17,6 +17,10 @@ type AsianOptionResult = {
   controlVariateConfidenceInterval: [number, number];
 };
 
+type AmericanOptionResult = {
+  price: number;
+};
+
 type FormState = {
   spot: string;
   strike: string;
@@ -77,6 +81,26 @@ type AsianPricingPayload = {
   optionType: "call" | "put";
 };
 
+type AmericanFormState = {
+  spot: string;
+  strike: string;
+  rate: string;
+  volatility: string;
+  maturity: string;
+  nSteps: string;
+  optionType: "call" | "put";
+};
+
+type AmericanPricingPayload = {
+  spot: number;
+  strike: number;
+  rate: number;
+  volatility: number;
+  maturity: number;
+  nSteps: number;
+  optionType: "call" | "put";
+};
+
 type OptionTab = "european" | "basket" | "asian" | "american";
 
 const initialForm: FormState = {
@@ -107,6 +131,16 @@ const initialAsianForm: AsianFormState = {
   nSteps: "50",
   nPaths: "10000",
   optionType: "call"
+};
+
+const initialAmericanForm: AmericanFormState = {
+  spot: "100",
+  strike: "100",
+  rate: "0.05",
+  volatility: "0.2",
+  maturity: "1",
+  nSteps: "50",
+  optionType: "put"
 };
 
 async function fetchEuropeanOption(data: PricingPayload): Promise<OptionResult> {
@@ -163,6 +197,24 @@ async function fetchAsianOption(data: AsianPricingPayload): Promise<AsianOptionR
   return payload;
 }
 
+async function fetchAmericanOption(data: AmericanPricingPayload): Promise<AmericanOptionResult> {
+  const response = await fetch("/api/american-option", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(data)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || "Python american option service error");
+  }
+
+  const payload = (await response.json()) as AmericanOptionResult;
+  return payload;
+}
+
 function formatNumber(value: number): string {
   return Number.isFinite(value) ? value.toFixed(4) : "-";
 }
@@ -179,6 +231,10 @@ export default function App() {
   const [asianResult, setAsianResult] = useState<AsianOptionResult | null>(null);
   const [asianError, setAsianError] = useState<string>("");
   const [isAsianLoading, setIsAsianLoading] = useState<boolean>(false);
+  const [americanForm, setAmericanForm] = useState<AmericanFormState>(initialAmericanForm);
+  const [americanResult, setAmericanResult] = useState<AmericanOptionResult | null>(null);
+  const [americanError, setAmericanError] = useState<string>("");
+  const [isAmericanLoading, setIsAmericanLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
@@ -211,6 +267,13 @@ export default function App() {
     value: AsianFormState[K]
   ) {
     setAsianForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateAmericanField<K extends keyof AmericanFormState>(
+    key: K,
+    value: AmericanFormState[K]
+  ) {
+    setAmericanForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function toNumber(value: string): number {
@@ -253,6 +316,18 @@ export default function App() {
     };
   }
 
+  function parseAmericanPayload(data: AmericanFormState): AmericanPricingPayload {
+    return {
+      spot: toNumber(data.spot),
+      strike: toNumber(data.strike),
+      rate: toNumber(data.rate),
+      volatility: toNumber(data.volatility),
+      maturity: toNumber(data.maturity),
+      nSteps: Number.parseInt(data.nSteps.trim(), 10),
+      optionType: data.optionType
+    };
+  }
+
   function validate(data: FormState): string {
     const parsed = parsePricingPayload(data);
     if (!Number.isFinite(parsed.spot) || parsed.spot <= 0) return "Spot price 必须是大于 0 的数字";
@@ -284,6 +359,17 @@ export default function App() {
     if (!Number.isFinite(parsed.rate)) return "Asian: Risk-free Rate 必须是数字";
     if (!Number.isInteger(parsed.nSteps) || parsed.nSteps <= 0) return "Asian: Number of steps 必须是正整数";
     if (!Number.isInteger(parsed.nPaths) || parsed.nPaths <= 0) return "Asian: Number of paths 必须是正整数";
+    return "";
+  }
+
+  function validateAmerican(data: AmericanFormState): string {
+    const parsed = parseAmericanPayload(data);
+    if (!Number.isFinite(parsed.spot) || parsed.spot <= 0) return "American: Spot price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.strike) || parsed.strike <= 0) return "American: Strike price 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.volatility) || parsed.volatility <= 0) return "American: Volatility 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.maturity) || parsed.maturity <= 0) return "American: Time to maturity 必须是大于 0 的数字";
+    if (!Number.isFinite(parsed.rate)) return "American: Risk-free Rate 必须是数字";
+    if (!Number.isInteger(parsed.nSteps) || parsed.nSteps <= 0) return "American: Number of steps 必须是正整数";
     return "";
   }
 
@@ -326,6 +412,20 @@ export default function App() {
       setAsianError(err instanceof Error ? err.message : "Asian Option 计算失败，请检查 Python 服务是否启动");
     } finally {
       setIsAsianLoading(false);
+    }
+  }
+
+  async function runAmericanPricing(data: AmericanPricingPayload) {
+    try {
+      setIsAmericanLoading(true);
+      const priced = await fetchAmericanOption(data);
+      setAmericanResult(priced);
+      setAmericanError("");
+    } catch (err) {
+      setAmericanResult(null);
+      setAmericanError(err instanceof Error ? err.message : "American Option 计算失败，请检查 Python 服务是否启动");
+    } finally {
+      setIsAmericanLoading(false);
     }
   }
 
@@ -384,6 +484,25 @@ export default function App() {
     setAsianForm(initialAsianForm);
     setAsianResult(null);
     setAsianError("");
+  }
+
+  async function handleAmericanSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const validationError = validateAmerican(americanForm);
+    setAmericanError(validationError);
+
+    if (validationError) {
+      setAmericanResult(null);
+      return;
+    }
+
+    await runAmericanPricing(parseAmericanPayload(americanForm));
+  }
+
+  function handleAmericanReset() {
+    setAmericanForm(initialAmericanForm);
+    setAmericanResult(null);
+    setAmericanError("");
   }
 
   const tabItems: Array<{ key: OptionTab; label: string }> = [
@@ -716,6 +835,99 @@ export default function App() {
                 <p className="ci-text">
                   95% CI: {asianResult ? `${formatNumber(asianResult.controlVariateConfidenceInterval[0])}, ${formatNumber(asianResult.controlVariateConfidenceInterval[1])}` : "-"}
                 </p>
+              </article>
+            </section>
+          </>
+        ) : activeTab === "american" ? (
+          <>
+            <form className="pricing-form" onSubmit={handleAmericanSubmit}>
+              <label>
+                Spot Price (S)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={americanForm.spot}
+                  onChange={(e) => updateAmericanField("spot", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Strike Price (K)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={americanForm.strike}
+                  onChange={(e) => updateAmericanField("strike", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Risk-free Rate (r)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={americanForm.rate}
+                  onChange={(e) => updateAmericanField("rate", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Volatility (sigma)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={americanForm.volatility}
+                  onChange={(e) => updateAmericanField("volatility", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Time to Maturity (T, years)
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={americanForm.maturity}
+                  onChange={(e) => updateAmericanField("maturity", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Number of Steps (n)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={americanForm.nSteps}
+                  onChange={(e) => updateAmericanField("nSteps", e.target.value)}
+                />
+              </label>
+
+              <label>
+                Option Type
+                <select
+                  value={americanForm.optionType}
+                  onChange={(e) => updateAmericanField("optionType", e.target.value as "call" | "put")}
+                >
+                  <option value="put">Put</option>
+                  <option value="call">Call</option>
+                </select>
+              </label>
+
+              <div className="actions">
+                <button type="submit" disabled={isAmericanLoading}>
+                  {isAmericanLoading ? "Calculating..." : "Calculate"}
+                </button>
+                <button type="button" className="secondary" onClick={handleAmericanReset} disabled={isAmericanLoading}>
+                  Reset
+                </button>
+              </div>
+            </form>
+
+            {americanError ? <p className="error">{americanError}</p> : null}
+
+            <section className="result-grid iv-result" aria-live="polite">
+              <article>
+                <p className="metric">American Option Value</p>
+                <p className="value">{americanResult ? formatNumber(americanResult.price) : "-"}</p>
               </article>
             </section>
           </>
