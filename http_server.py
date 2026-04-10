@@ -7,6 +7,9 @@ from typing import Any
 from implied_volatility import implied_volatility_newton
 from Arithmetic_asian_option import Arith_MC_asian_option
 from Geometric_asian_option import geo_CF_asian_option
+from Arithmetic_basket_option import Arith_MC_basket_option
+from Geometric_basket_option import geo_CF_basket_option
+from KIKO_put_option import quasi_mc_kiko_put
 from american_option import american_option
 
 
@@ -53,8 +56,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._handle_implied_volatility(payload)
             elif self.path == "/api/asian-option":
                 self._handle_asian_option(payload)
+            elif self.path == "/api/basket-option":
+                self._handle_basket_option(payload)
             elif self.path == "/api/american-option":
                 self._handle_american_option(payload)
+            elif self.path == "/api/kiko-put-option":
+                self._handle_kiko_put_option(payload)
             else:
                 self._send_json(404, {"error": "Not Found"})
         except Exception as exc:
@@ -172,6 +179,94 @@ class Handler(BaseHTTPRequestHandler):
 
         price = float(american_option(spot, strike, rate, maturity, n_steps, volatility, option_type))
         self._send_json(200, {"price": price})
+
+    def _handle_basket_option(self, payload: dict[str, Any]) -> None:
+        spot1 = float(payload["spot1"])
+        spot2 = float(payload["spot2"])
+        strike = float(payload["strike"])
+        rate = float(payload["rate"])
+        maturity = float(payload["maturity"])
+        volatility1 = float(payload["volatility1"])
+        volatility2 = float(payload["volatility2"])
+        correlation = float(payload["correlation"])
+        n_paths = int(payload.get("nPaths", 100000))
+        option_type = str(payload.get("optionType", "call")).lower()
+
+        if option_type not in {"call", "put"}:
+            raise ValueError("optionType must be 'call' or 'put'")
+        if min(spot1, spot2, strike, maturity, volatility1, volatility2) <= 0:
+            raise ValueError("spot/strike/maturity/volatility must be positive")
+        if not -1.0 <= correlation <= 1.0:
+            raise ValueError("correlation must be between -1 and 1")
+        if n_paths <= 0:
+            raise ValueError("nPaths must be a positive integer")
+
+        geometric_value = float(
+            geo_CF_basket_option(spot1, spot2, strike, rate, maturity, volatility1, volatility2, correlation, option_type)
+        )
+        standard_mc_value, control_variate_mc_value, standard_mc_ci, control_variate_ci = Arith_MC_basket_option(
+            spot1,
+            spot2,
+            strike,
+            rate,
+            maturity,
+            volatility1,
+            volatility2,
+            correlation,
+            option_type=option_type,
+            m_paths=n_paths,
+        )
+
+        self._send_json(
+            200,
+            {
+                "geometricValue": geometric_value,
+                "standardMcValue": float(standard_mc_value),
+                "controlVariateMcValue": float(control_variate_mc_value),
+                "standardMcConfidenceInterval": [float(standard_mc_ci[0]), float(standard_mc_ci[1])],
+                "controlVariateConfidenceInterval": [float(control_variate_ci[0]), float(control_variate_ci[1])],
+            },
+        )
+
+    def _handle_kiko_put_option(self, payload: dict[str, Any]) -> None:
+        spot = float(payload["spot"])
+        strike = float(payload["strike"])
+        rate = float(payload["rate"])
+        maturity = float(payload["maturity"])
+        volatility = float(payload["volatility"])
+        lower_barrier = float(payload["lowerBarrier"])
+        upper_barrier = float(payload["upperBarrier"])
+        rebate = float(payload["rebate"])
+        n_steps = int(payload.get("nSteps", 50))
+        n_paths = int(payload.get("nPaths", 8192))
+        spot_shift_value = payload.get("spotShift")
+        spot_shift = float(spot_shift_value) if spot_shift_value is not None else None
+
+        if min(spot, strike, maturity, volatility, lower_barrier, upper_barrier) <= 0:
+            raise ValueError("spot/strike/maturity/volatility/barriers must be positive")
+        if rebate < 0:
+            raise ValueError("rebate must be non-negative")
+        if n_steps <= 0 or n_paths <= 0:
+            raise ValueError("nSteps and nPaths must be positive integers")
+        if not lower_barrier < spot < upper_barrier:
+            raise ValueError("lowerBarrier < spot < upperBarrier must hold")
+        if spot_shift is not None and spot_shift <= 0:
+            raise ValueError("spotShift must be positive")
+
+        price, delta = quasi_mc_kiko_put(
+            spot,
+            strike,
+            rate,
+            maturity,
+            volatility,
+            lower_barrier,
+            upper_barrier,
+            n_steps,
+            rebate,
+            n_paths=n_paths,
+            spot_shift=spot_shift,
+        )
+        self._send_json(200, {"price": float(price), "delta": float(delta)})
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8000) -> None:
