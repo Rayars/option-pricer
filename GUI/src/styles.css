@@ -257,6 +257,40 @@ button.secondary:hover {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.basket-intro {
+  margin: 0.2rem 0 1rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.basket-intro article {
+  border: 1px solid var(--line);
+  border-radius: 0.85rem;
+  padding: 0.75rem;
+  background: linear-gradient(140deg, #fff6eb, #fffdf8);
+}
+
+.value-neutral {
+  color: #3f372f;
+  font-size: 0.9rem;
+}
+
+.kiko-note {
+  margin: 0.25rem 0 1rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--line));
+  border-radius: 0.9rem;
+  padding: 0.75rem 0.9rem;
+  background: linear-gradient(130deg, rgba(205, 74, 29, 0.08), rgba(255, 238, 212, 0.9));
+}
+
+.kiko-note p {
+  margin: 0;
+  color: #5d4536;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .ci-text {
   margin-top: 0.45rem;
   font-size: 0.75rem;
@@ -303,6 +337,10 @@ button.secondary:hover {
   }
 
   .asian-result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .basket-intro {
     grid-template-columns: 1fr;
   }
 }
